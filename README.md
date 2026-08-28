@@ -122,3 +122,168 @@ src/main/java/edu/eci/arsw/blueprints
 
 - Imagen de contenedor (`spring-boot:build-image`).  
 - Métricas con Actuator.  
+
+---
+
+## ✅ SOLUCIÓN
+
+A continuación se documenta el desarrollo realizado para el Laboratorio 3, incluyendo la carga de la base de datos para la evaluación.
+
+### 1. Cómo cargar/levantar la base de datos (requisito de evaluación)
+
+La base de datos PostgreSQL se levanta con Docker Compose. El esquema (`blueprints`, `points`) y los datos semilla se crean automáticamente la primera vez que se inicia el contenedor, mediante el script [`init-db/init.sql`](init-db/init.sql) montado en `/docker-entrypoint-initdb.d/`.
+
+```bash
+# 1. Levantar PostgreSQL en Docker (crea volumen, red y ejecuta init-db/init.sql)
+docker compose up -d
+
+# 2. Verificar que el contenedor esté healthy
+docker compose ps
+
+# 3. (Opcional) Verificar el esquema y los datos semilla
+docker exec blueprints-postgres psql -U blueprints -d blueprints_db -c "\dt"
+docker exec blueprints-postgres psql -U blueprints -d blueprints_db -c "SELECT author, name FROM blueprints;"
+```
+
+Credenciales/DB definidas en [`docker-compose.yml`](docker-compose.yml):
+
+| Variable | Valor |
+|---|---|
+| `POSTGRES_USER` | `blueprints` |
+| `POSTGRES_PASSWORD` | `blueprints` |
+| `POSTGRES_DB` | `blueprints_db` |
+| Puerto expuesto | `5432` |
+
+```bash
+# 4. Ejecutar la aplicación apuntando a PostgreSQL (perfil "postgres")
+mvn spring-boot:run -Dspring-boot.run.profiles=postgres
+```
+
+> Si se corre `mvn spring-boot:run` **sin** el perfil `postgres`, la app usa la persistencia en memoria original (no requiere Docker). Esto se logró excluyendo la autoconfiguración de `DataSource`/`JdbcTemplate` por defecto en [`application.properties`](src/main/resources/application.properties) y reactivándola solo en [`application-postgres.properties`](src/main/resources/application-postgres.properties), de forma que `mvn clean install` (tests) siga funcionando sin Docker levantado.
+
+Para bajar y limpiar el contenedor y el volumen:
+```bash
+docker compose down -v
+```
+
+### 2. Migración a PostgreSQL
+
+- Se creó [`PostgresBlueprintPersistence`](src/main/java/edu/eci/arsw/blueprints/persistence/postgres/PostgresBlueprintPersistence.java), que implementa la interfaz `BlueprintPersistence` usando `JdbcTemplate` (sin ORM) contra las tablas `blueprints` y `points`.
+- Se activa con el perfil de Spring `postgres` (`@Profile("postgres")`); `InMemoryBlueprintPersistence` quedó anotada con `@Profile("!postgres")` para que ambas implementaciones convivan sin chocar (patrón Strategy, misma interfaz).
+- Esquema y datos semilla (mismos blueprints de ejemplo que la versión en memoria: `john/house`, `john/garage`, `jane/garden`) en [`init-db/init.sql`](init-db/init.sql).
+
+### 3. API REST versionada y respuesta uniforme
+
+- Path base cambiado de `/blueprints` a **`/api/v1/blueprints`** en [`BlueprintsAPIController`](src/main/java/edu/eci/arsw/blueprints/controllers/BlueprintsAPIController.java).
+- Se implementó `record ApiResponse<T>(int code, String message, T data)` en [`web/ApiResponse.java`](src/main/java/edu/eci/arsw/blueprints/web/ApiResponse.java) y todos los endpoints devuelven las respuestas envueltas en este record.
+- Se agregó [`GlobalExceptionHandler`](src/main/java/edu/eci/arsw/blueprints/web/GlobalExceptionHandler.java) (`@RestControllerAdvice`) que centraliza el mapeo de excepciones a códigos HTTP:
+
+| Caso | Código |
+|---|---|
+| `GET /api/v1/blueprints` (todos) | `200 OK` |
+| `GET /api/v1/blueprints/{author}` | `200 OK` / `404 Not Found` |
+| `GET /api/v1/blueprints/{author}/{name}` | `200 OK` / `404 Not Found` |
+| `POST /api/v1/blueprints` (crear) | `201 Created` / `400 Bad Request` (duplicado o validación `@NotBlank`) |
+| `PUT /api/v1/blueprints/{author}/{name}/points` (agregar punto) | `202 Accepted` / `404 Not Found` |
+
+Evidencia (probado contra la base de datos levantada con Docker, perfil `postgres`):
+
+```bash
+$ curl -s http://localhost:8080/api/v1/blueprints
+{"code":200,"message":"execute ok","data":[{"author":"john","name":"house","points":[...]}, ...]}
+
+$ curl -s -w "\nHTTP:%{http_code}\n" -X POST http://localhost:8080/api/v1/blueprints \
+  -H 'Content-Type: application/json' \
+  -d '{ "author":"kevin","name":"kitchen","points":[{"x":1,"y":1},{"x":2,"y":2}] }'
+{"code":201,"message":"blueprint created","data":{"author":"kevin","name":"kitchen","points":[...]}}
+HTTP:201
+
+$ curl -s -w "\nHTTP:%{http_code}\n" -X PUT http://localhost:8080/api/v1/blueprints/kevin/kitchen/points \
+  -H 'Content-Type: application/json' -d '{ "x":3,"y":3 }'
+{"code":202,"message":"point added","data":null}
+HTTP:202
+
+$ curl -s -w "\nHTTP:%{http_code}\n" http://localhost:8080/api/v1/blueprints/nadie/nada
+{"code":404,"message":"Blueprint not found: nadie/nada","data":null}
+HTTP:404
+```
+
+### 4. OpenAPI / Swagger
+
+Configurado con `springdoc-openapi` ([`config/OpenApiConfig.java`](src/main/java/edu/eci/arsw/blueprints/config/OpenApiConfig.java)) y anotado endpoint por endpoint en [`BlueprintsAPIController`](src/main/java/edu/eci/arsw/blueprints/controllers/BlueprintsAPIController.java) con `@Tag`, `@Operation` y `@ApiResponses`/`@ApiResponse` (summary, description y códigos de respuesta documentados por operación).
+
+- Swagger UI: http://localhost:8080/swagger-ui/index.html (`200 OK`)
+- OpenAPI JSON: http://localhost:8080/v3/api-docs (refleja el path `/api/v1/blueprints` con las descripciones anotadas)
+
+### 5. Filtros de Blueprints por perfil
+
+- `RedundancyFilter` (perfil `redundancy`) y `UndersamplingFilter` (perfil `undersampling`) ya existían en el proyecto base.
+- **Bug corregido**: `IdentityFilter` no tenía restricción de perfil, por lo que al activar `redundancy` o `undersampling` Spring encontraba **dos** beans `BlueprintsFilter` candidatos y la app no arrancaba (`required a single bean, but 2 were found`). Se corrigió agregando `@Profile("!redundancy & !undersampling")` en [`IdentityFilter`](src/main/java/edu/eci/arsw/blueprints/filters/IdentityFilter.java).
+- Verificado en ejecución:
+
+```bash
+# Perfil redundancy — elimina puntos consecutivos duplicados
+mvn spring-boot:run -Dspring-boot.run.profiles=postgres,redundancy
+# entrada: [(1,1),(1,1),(2,2),(2,2),(3,3)] -> salida filtrada: [(1,1),(2,2),(3,3)]
+
+# Perfil undersampling — conserva 1 de cada 2 puntos
+mvn spring-boot:run -Dspring-boot.run.profiles=postgres,undersampling
+# entrada: [(0,0),(1,1),(2,2),(3,3),(4,4)] -> salida filtrada: [(0,0),(2,2),(4,4)]
+```
+
+### 6. Pruebas
+
+| Clase | Tipo | Qué cubre |
+|---|---|---|
+| [`RedundancyFilterTest`](src/test/java/edu/eci/arsw/blueprints/filters/RedundancyFilterTest.java) | Unitaria | Elimina duplicados consecutivos, conserva no consecutivos, lista vacía |
+| [`UndersamplingFilterTest`](src/test/java/edu/eci/arsw/blueprints/filters/UndersamplingFilterTest.java) | Unitaria | Conserva 1 de cada 2 puntos, listas cortas sin cambio |
+| [`BlueprintsAPIControllerTest`](src/test/java/edu/eci/arsw/blueprints/controllers/BlueprintsAPIControllerTest.java) | `@WebMvcTest` (mock de `BlueprintsServices`) | Los 5 endpoints, formato `ApiResponse`, y los 5 códigos HTTP (200/201/202/400/404), incluida la validación `@NotBlank` |
+| [`PostgresBlueprintPersistenceIT`](src/test/java/edu/eci/arsw/blueprints/persistence/postgres/PostgresBlueprintPersistenceIT.java) | Integración (requiere Docker) | Lee datos semilla reales, guarda y recupera un blueprint, agrega un punto, `BlueprintNotFoundException` |
+
+```bash
+# Unitarias + slice de controller (no requieren Docker, corren en mvn clean install)
+mvn clean install
+
+# Integración contra PostgreSQL (requiere docker compose up -d primero)
+mvn -Dtest=PostgresBlueprintPersistenceIT -Dspring.profiles.active=postgres test
+```
+
+> `PostgresBlueprintPersistenceIT` usa el sufijo `*IT` (no `*Test`) a propósito: los patrones por defecto de Surefire no la incluyen, así que `mvn clean install` sigue funcionando sin Docker levantado, y la prueba de integración real se ejecuta explícitamente cuando sí lo está.
+
+Resultado verificado en esta sesión: **14 tests** (`RedundancyFilterTest`, `UndersamplingFilterTest`, `BlueprintsAPIControllerTest`, `BlueprintsSmokeTest`) en verde sin Docker, y **4 tests** de `PostgresBlueprintPersistenceIT` en verde contra el contenedor real.
+
+### 7. Evidencias
+
+Carpeta [`evidencias/`](evidencias/) con la salida real capturada en esta sesión (perfil `postgres`, contenedor `blueprints-postgres` levantado con `docker compose up -d`):
+
+| Archivo | Contenido |
+|---|---|
+| [`evidencias/api-evidence.txt`](evidencias/api-evidence.txt) | Respuestas HTTP completas (`curl -i`) de los 5 endpoints: listar todos (200), por autor (200), por autor+nombre (200), 404, crear (201), duplicado (400), validación (400), agregar punto (202) y verificación de Swagger UI/OpenAPI (200) |
+| [`evidencias/postgres-evidence.txt`](evidencias/postgres-evidence.txt) | `docker compose ps`, esquema (`\dt`, `\d blueprints`, `\d points`) y datos reales en las tablas `blueprints`/`points`, incluyendo el registro creado por el `POST`/`PUT` de la prueba, confirmando persistencia real en PostgreSQL |
+
+Adicionalmente se verificó interactivamente en el navegador la ejecución de `GET /api/v1/blueprints` desde Swagger UI ("Try it out" → "Execute"), confirmando el tag **Blueprints**, las descripciones de `@Operation`, el código `200` documentado y el cuerpo de respuesta con los datos reales de la base de datos.
+
+### 8. Resumen de archivos añadidos/modificados
+
+| Archivo | Cambio |
+|---|---|
+| `docker-compose.yml` | Nuevo — levanta PostgreSQL con volumen persistente y healthcheck |
+| `init-db/init.sql` | Nuevo — esquema `blueprints`/`points` + datos semilla |
+| `pom.xml` | + `spring-boot-starter-jdbc`, + driver `org.postgresql:postgresql` |
+| `src/main/resources/application.properties` | Excluye autoconfig de datasource por defecto (permite correr sin Docker) |
+| `src/main/resources/application-postgres.properties` | Nuevo — config de conexión a PostgreSQL |
+| `persistence/InMemoryBlueprintPersistence.java` | + `@Profile("!postgres")` |
+| `persistence/postgres/PostgresBlueprintPersistence.java` | Nuevo — implementación JDBC de `BlueprintPersistence` |
+| `filters/IdentityFilter.java` | Fix: `@Profile("!redundancy & !undersampling")` |
+| `web/ApiResponse.java` | Nuevo — record de respuesta uniforme |
+| `web/GlobalExceptionHandler.java` | Nuevo — mapeo centralizado de excepciones a códigos HTTP |
+| `controllers/BlueprintsAPIController.java` | Path `/api/v1/blueprints`, respuestas envueltas en `ApiResponse<T>`, códigos HTTP correctos, anotaciones `@Tag`/`@Operation`/`@ApiResponses` |
+| `filters/RedundancyFilterTest.java`, `filters/UndersamplingFilterTest.java`, `controllers/BlueprintsAPIControllerTest.java`, `persistence/postgres/PostgresBlueprintPersistenceIT.java` | Nuevos — pruebas unitarias y de integración |
+| `evidencias/api-evidence.txt`, `evidencias/postgres-evidence.txt` | Nuevos — evidencia de ejecución real (API + base de datos) |
+
+### 9. Estado final
+
+- `mvn clean install` (perfil por defecto, sin Docker): **BUILD SUCCESS**, 14 tests en verde.
+- `docker compose up -d`: contenedor `blueprints-postgres` healthy.
+- `mvn spring-boot:run -Dspring-boot.run.profiles=postgres`: API funcionando end-to-end contra PostgreSQL, Swagger UI con endpoints documentados, todos los endpoints y códigos HTTP verificados con `curl` y desde Swagger UI.
+- `PostgresBlueprintPersistenceIT` contra el contenedor real: 4 tests en verde.

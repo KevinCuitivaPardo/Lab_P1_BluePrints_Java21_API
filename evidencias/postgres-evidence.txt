@@ -1,0 +1,64 @@
+=== Evidencia de la base de datos PostgreSQL (contenedor blueprints-postgres, docker compose) ===
+Fecha de captura: jue., 27 de ago. de 2026 10:08:21 p. m.
+
+--- docker compose ps ---
+NAME                  IMAGE                COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+blueprints-postgres   postgres:16-alpine   "docker-entrypoint.s…"   db        18 minutes ago   Up 18 minutes (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+
+--- Esquema (\dt) ---
+            List of relations
+ Schema |    Name    | Type  |   Owner    
+--------+------------+-------+------------
+ public | blueprints | table | blueprints
+ public | points     | table | blueprints
+(2 rows)
+
+
+--- Estructura tabla blueprints ---
+                                    Table "public.blueprints"
+ Column |          Type          | Collation | Nullable |                Default                 
+--------+------------------------+-----------+----------+----------------------------------------
+ id     | bigint                 |           | not null | nextval('blueprints_id_seq'::regclass)
+ author | character varying(100) |           | not null | 
+ name   | character varying(100) |           | not null | 
+Indexes:
+    "blueprints_pkey" PRIMARY KEY, btree (id)
+    "blueprints_author_name_key" UNIQUE CONSTRAINT, btree (author, name)
+Referenced by:
+    TABLE "points" CONSTRAINT "points_blueprint_id_fkey" FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+
+
+--- Estructura tabla points ---
+                               Table "public.points"
+    Column    |  Type   | Collation | Nullable |              Default               
+--------------+---------+-----------+----------+------------------------------------
+ id           | bigint  |           | not null | nextval('points_id_seq'::regclass)
+ blueprint_id | bigint  |           | not null | 
+ x            | integer |           | not null | 
+ y            | integer |           | not null | 
+ point_order  | integer |           | not null | 
+Indexes:
+    "points_pkey" PRIMARY KEY, btree (id)
+    "idx_points_blueprint_id" btree (blueprint_id)
+Foreign-key constraints:
+    "points_blueprint_id_fkey" FOREIGN KEY (blueprint_id) REFERENCES blueprints(id) ON DELETE CASCADE
+
+
+--- Datos: blueprints y cantidad de puntos (incluye kevin/kitchen creado via POST/PUT en esta sesion) ---
+ id | author |  name   | puntos 
+----+--------+---------+--------
+  1 | john   | house   |      4
+  2 | john   | garage  |      3
+  3 | jane   | garden  |      3
+  9 | kevin  | kitchen |      3
+(4 rows)
+
+
+--- Detalle de puntos de kevin/kitchen (evidencia de que el PUT persistio en la BD real) ---
+ x | y | point_order 
+---+---+-------------
+ 1 | 1 |           0
+ 2 | 2 |           1
+ 3 | 3 |           2
+(3 rows)
+
