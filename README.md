@@ -125,7 +125,7 @@ src/main/java/edu/eci/arsw/blueprints
 
 ---
 
-## ✅ SOLUCIÓN
+## SOLUCIÓN
 
 A continuación se documenta el desarrollo realizado para el Laboratorio 3, incluyendo la carga de la base de datos para la evaluación.
 
@@ -210,10 +210,9 @@ HTTP:404
 
 ### 4. OpenAPI / Swagger
 
-Configurado con `springdoc-openapi` ([`config/OpenApiConfig.java`](src/main/java/edu/eci/arsw/blueprints/config/OpenApiConfig.java)) y anotado endpoint por endpoint en [`BlueprintsAPIController`](src/main/java/edu/eci/arsw/blueprints/controllers/BlueprintsAPIController.java) con `@Tag`, `@Operation` y `@ApiResponses`/`@ApiResponse` (summary, description y códigos de respuesta documentados por operación).
-
+Ya configurado con `springdoc-openapi` ([`config/OpenApiConfig.java`](src/main/java/edu/eci/arsw/blueprints/config/OpenApiConfig.java)) y verificado en ejecución:
 - Swagger UI: http://localhost:8080/swagger-ui/index.html (`200 OK`)
-- OpenAPI JSON: http://localhost:8080/v3/api-docs (refleja el path `/api/v1/blueprints` con las descripciones anotadas)
+- OpenAPI JSON: http://localhost:8080/v3/api-docs (refleja el path `/api/v1/blueprints`)
 
 ### 5. Filtros de Blueprints por perfil
 
@@ -231,39 +230,7 @@ mvn spring-boot:run -Dspring-boot.run.profiles=postgres,undersampling
 # entrada: [(0,0),(1,1),(2,2),(3,3),(4,4)] -> salida filtrada: [(0,0),(2,2),(4,4)]
 ```
 
-### 6. Pruebas
-
-| Clase | Tipo | Qué cubre |
-|---|---|---|
-| [`RedundancyFilterTest`](src/test/java/edu/eci/arsw/blueprints/filters/RedundancyFilterTest.java) | Unitaria | Elimina duplicados consecutivos, conserva no consecutivos, lista vacía |
-| [`UndersamplingFilterTest`](src/test/java/edu/eci/arsw/blueprints/filters/UndersamplingFilterTest.java) | Unitaria | Conserva 1 de cada 2 puntos, listas cortas sin cambio |
-| [`BlueprintsAPIControllerTest`](src/test/java/edu/eci/arsw/blueprints/controllers/BlueprintsAPIControllerTest.java) | `@WebMvcTest` (mock de `BlueprintsServices`) | Los 5 endpoints, formato `ApiResponse`, y los 5 códigos HTTP (200/201/202/400/404), incluida la validación `@NotBlank` |
-| [`PostgresBlueprintPersistenceIT`](src/test/java/edu/eci/arsw/blueprints/persistence/postgres/PostgresBlueprintPersistenceIT.java) | Integración (requiere Docker) | Lee datos semilla reales, guarda y recupera un blueprint, agrega un punto, `BlueprintNotFoundException` |
-
-```bash
-# Unitarias + slice de controller (no requieren Docker, corren en mvn clean install)
-mvn clean install
-
-# Integración contra PostgreSQL (requiere docker compose up -d primero)
-mvn -Dtest=PostgresBlueprintPersistenceIT -Dspring.profiles.active=postgres test
-```
-
-> `PostgresBlueprintPersistenceIT` usa el sufijo `*IT` (no `*Test`) a propósito: los patrones por defecto de Surefire no la incluyen, así que `mvn clean install` sigue funcionando sin Docker levantado, y la prueba de integración real se ejecuta explícitamente cuando sí lo está.
-
-Resultado verificado en esta sesión: **14 tests** (`RedundancyFilterTest`, `UndersamplingFilterTest`, `BlueprintsAPIControllerTest`, `BlueprintsSmokeTest`) en verde sin Docker, y **4 tests** de `PostgresBlueprintPersistenceIT` en verde contra el contenedor real.
-
-### 7. Evidencias
-
-Carpeta [`evidencias/`](evidencias/) con la salida real capturada en esta sesión (perfil `postgres`, contenedor `blueprints-postgres` levantado con `docker compose up -d`):
-
-| Archivo | Contenido |
-|---|---|
-| [`evidencias/api-evidence.txt`](evidencias/api-evidence.txt) | Respuestas HTTP completas (`curl -i`) de los 5 endpoints: listar todos (200), por autor (200), por autor+nombre (200), 404, crear (201), duplicado (400), validación (400), agregar punto (202) y verificación de Swagger UI/OpenAPI (200) |
-| [`evidencias/postgres-evidence.txt`](evidencias/postgres-evidence.txt) | `docker compose ps`, esquema (`\dt`, `\d blueprints`, `\d points`) y datos reales en las tablas `blueprints`/`points`, incluyendo el registro creado por el `POST`/`PUT` de la prueba, confirmando persistencia real en PostgreSQL |
-
-Adicionalmente se verificó interactivamente en el navegador la ejecución de `GET /api/v1/blueprints` desde Swagger UI ("Try it out" → "Execute"), confirmando el tag **Blueprints**, las descripciones de `@Operation`, el código `200` documentado y el cuerpo de respuesta con los datos reales de la base de datos.
-
-### 8. Resumen de archivos añadidos/modificados
+### 6. Resumen de archivos añadidos/modificados
 
 | Archivo | Cambio |
 |---|---|
@@ -277,13 +244,16 @@ Adicionalmente se verificó interactivamente en el navegador la ejecución de `G
 | `filters/IdentityFilter.java` | Fix: `@Profile("!redundancy & !undersampling")` |
 | `web/ApiResponse.java` | Nuevo — record de respuesta uniforme |
 | `web/GlobalExceptionHandler.java` | Nuevo — mapeo centralizado de excepciones a códigos HTTP |
-| `controllers/BlueprintsAPIController.java` | Path `/api/v1/blueprints`, respuestas envueltas en `ApiResponse<T>`, códigos HTTP correctos, anotaciones `@Tag`/`@Operation`/`@ApiResponses` |
-| `filters/RedundancyFilterTest.java`, `filters/UndersamplingFilterTest.java`, `controllers/BlueprintsAPIControllerTest.java`, `persistence/postgres/PostgresBlueprintPersistenceIT.java` | Nuevos — pruebas unitarias y de integración |
-| `evidencias/api-evidence.txt`, `evidencias/postgres-evidence.txt` | Nuevos — evidencia de ejecución real (API + base de datos) |
+| `controllers/BlueprintsAPIController.java` | Path `/api/v1/blueprints`, respuestas envueltas en `ApiResponse<T>`, códigos HTTP correctos |
 
-### 9. Estado final
+### 7. Estado final
 
-- `mvn clean install` (perfil por defecto, sin Docker): **BUILD SUCCESS**, 14 tests en verde.
+- `mvn clean install` (perfil por defecto, sin Docker): **BUILD SUCCESS**, tests en verde.
 - `docker compose up -d`: contenedor `blueprints-postgres` healthy.
-- `mvn spring-boot:run -Dspring-boot.run.profiles=postgres`: API funcionando end-to-end contra PostgreSQL, Swagger UI con endpoints documentados, todos los endpoints y códigos HTTP verificados con `curl` y desde Swagger UI.
-- `PostgresBlueprintPersistenceIT` contra el contenedor real: 4 tests en verde.
+- `mvn spring-boot:run -Dspring-boot.run.profiles=postgres`: API funcionando end-to-end contra PostgreSQL, Swagger UI accesible, todos los endpoints y códigos HTTP verificados con `curl`.
+ 
+ ## Evidencias fotograficas 
+
+![alt text](evidencias/BD.png)
+
+![alt text](evidencias/sw.png)
