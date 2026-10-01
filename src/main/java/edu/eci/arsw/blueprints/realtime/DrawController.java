@@ -18,6 +18,8 @@ public class DrawController {
 
     private static final Logger log = LoggerFactory.getLogger(DrawController.class);
 
+    private static final int MAX_COORD = 10_000;
+
     public record DrawMessage(String author, String name, Point point) { }
 
     public record BlueprintUpdate(String author, String name, List<Point> points) { }
@@ -33,7 +35,9 @@ public class DrawController {
     /** Persiste el punto (creando el plano si no existe) y reenvía el plano completo a todos los suscriptores. */
     @MessageMapping("/draw")
     public void draw(DrawMessage msg) throws BlueprintNotFoundException, BlueprintPersistenceException {
-        if (msg == null || msg.point() == null || isBlank(msg.author()) || isBlank(msg.name())) {
+        if (msg == null || msg.point() == null || isBlank(msg.author()) || isBlank(msg.name())
+                || msg.author().length() > 100 || msg.name().length() > 100
+                || Math.abs(msg.point().x()) > MAX_COORD || Math.abs(msg.point().y()) > MAX_COORD) {
             log.warn("draw ignorado: payload inválido {}", msg);
             return;
         }
