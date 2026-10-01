@@ -82,6 +82,26 @@ public class BlueprintsAPIController {
                 .body(new ApiResponse<>(HttpStatus.CREATED.value(), "blueprint created", bp));
     }
 
+    // PUT /api/v1/blueprints/{author}/{bpname}
+    @Operation(summary = "Actualizar un blueprint",
+            description = "Reemplaza la lista de puntos del blueprint indicado.")
+    @PutMapping("/{author}/{bpname}")
+    public ResponseEntity<ApiResponse<Void>> update(@PathVariable String author, @PathVariable String bpname,
+                                                      @Valid @RequestBody UpdateBlueprintRequest req)
+            throws BlueprintNotFoundException {
+        services.updateBlueprint(author, bpname, req.points());
+        return ResponseEntity.ok(new ApiResponse<>(HttpStatus.OK.value(), "blueprint updated", null));
+    }
+
+    // DELETE /api/v1/blueprints/{author}/{bpname}
+    @Operation(summary = "Eliminar un blueprint")
+    @DeleteMapping("/{author}/{bpname}")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String author, @PathVariable String bpname)
+            throws BlueprintNotFoundException {
+        services.deleteBlueprint(author, bpname);
+        return ResponseEntity.ok(new ApiResponse<>(HttpStatus.OK.value(), "blueprint deleted", null));
+    }
+
     // PUT /api/v1/blueprints/{author}/{bpname}/points
     @Operation(summary = "Agregar un punto a un blueprint",
             description = "Agrega un nuevo punto (x,y) al final del blueprint indicado.")
@@ -97,6 +117,8 @@ public class BlueprintsAPIController {
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(new ApiResponse<>(HttpStatus.ACCEPTED.value(), "point added", null));
     }
+
+    public record UpdateBlueprintRequest(@Valid List<Point> points) { }
 
     public record NewBlueprintRequest(
             @NotBlank String author,

@@ -19,9 +19,14 @@ public class Blueprint {
 
     public String getAuthor() { return author; }
     public String getName() { return name; }
-    public List<Point> getPoints() { return Collections.unmodifiableList(points); }
+    public synchronized List<Point> getPoints() { return List.copyOf(points); }
 
-    public void addPoint(Point p) { points.add(p); }
+    public synchronized void addPoint(Point p) { points.add(p); }
+
+    public synchronized void replacePoints(List<Point> pts) {
+        points.clear();
+        if (pts != null) points.addAll(pts);
+    }
 
     @Override
     public boolean equals(Object o) {

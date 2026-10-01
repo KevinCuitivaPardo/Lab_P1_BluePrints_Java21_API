@@ -7,6 +7,9 @@ import edu.eci.arsw.blueprints.persistence.BlueprintPersistence;
 import edu.eci.arsw.blueprints.persistence.BlueprintPersistenceException;
 import org.springframework.stereotype.Service;
 
+import edu.eci.arsw.blueprints.model.Point;
+
+import java.util.List;
 import java.util.Set;
 
 @Service
@@ -34,6 +37,14 @@ public class BlueprintsServices {
 
     public Blueprint getBlueprint(String author, String name) throws BlueprintNotFoundException {
         return filter.apply(persistence.getBlueprint(author, name));
+    }
+
+    public void updateBlueprint(String author, String name, List<Point> points) throws BlueprintNotFoundException {
+        persistence.updateBlueprint(author, name, points);
+    }
+
+    public void deleteBlueprint(String author, String name) throws BlueprintNotFoundException {
+        persistence.deleteBlueprint(author, name);
     }
 
     public void addPoint(String author, String name, int x, int y) throws BlueprintNotFoundException {

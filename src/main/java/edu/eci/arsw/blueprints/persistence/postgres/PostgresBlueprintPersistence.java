@@ -103,6 +103,20 @@ public class PostgresBlueprintPersistence implements BlueprintPersistence {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
+    public void updateBlueprint(String author, String name, List<Point> points) throws BlueprintNotFoundException {
+        Long id = findBlueprintId(author, name);
+        jdbc.update("DELETE FROM points WHERE blueprint_id = ?", id);
+        insertPoints(id, points == null ? List.of() : points);
+    }
+
+    @Override
+    public void deleteBlueprint(String author, String name) throws BlueprintNotFoundException {
+        Long id = findBlueprintId(author, name);
+        jdbc.update("DELETE FROM blueprints WHERE id = ?", id); // points: ON DELETE CASCADE
+    }
+
+    @Override
     public void addPoint(String author, String name, int x, int y) throws BlueprintNotFoundException {
         Long id = findBlueprintId(author, name);
         Integer maxOrder = jdbc.queryForObject(
