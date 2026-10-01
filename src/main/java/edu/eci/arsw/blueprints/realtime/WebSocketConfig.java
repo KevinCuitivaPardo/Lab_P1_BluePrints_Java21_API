@@ -13,7 +13,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws-blueprints").setAllowedOrigins(CorsConfig.ORIGINS);
+        registry.addEndpoint("/ws-blueprints").setAllowedOriginPatterns(CorsConfig.ORIGIN_PATTERNS);
     }
 
     @Override
